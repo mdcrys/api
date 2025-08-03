@@ -77,7 +77,7 @@ public function ocr(Request $request)
             continue;
         }
 
-        $rutaRelativa = "storage/public/{$moduloId}/{$nuevoNombre}";
+        $rutaRelativa = "api/pdf/storage/public/{$moduloId}/{$nuevoNombre}";
         $url = url($rutaRelativa);
 
         $archivosProcesados[] = [
@@ -170,15 +170,23 @@ public function store(Request $request)
 
 
     // Método para traer siempre todos los campos_extra de la tabla indexaciones
-    public function obtenerCamposExtra()
-    {
-        // Traemos solo la columna campos_extra de todos los registros
-        $camposExtras = Indexacion::select('campos_extra')->get();
+   public function obtenerCamposExtra(Request $request)
+{
+   // dd($request->all());
+    $idModulo = $request->input('idModulo'); // Obtiene idModulo del body JSON
 
-        return response()->json([
-            'campos_extra' => $camposExtras,
-        ]);
+    if (!$idModulo) {
+        return response()->json(['error' => 'Falta idModulo'], 400);
     }
+
+    $camposExtras = Indexacion::where('id_modulo', $idModulo)
+                              ->select('campos_extra')
+                              ->get();
+
+    return response()->json([
+        'campos_extra' => $camposExtras,
+    ]);
+}
 
 
 

@@ -42,7 +42,8 @@ use App\Http\Controllers\IndexacionController;
 use App\Http\Controllers\ProyectoController;
 use App\Http\Controllers\ModuloController;
 use App\Http\Controllers\SeccionController;
-
+use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Response;
 /*
 |--------------------------------------------------------------------------
 | API Routes
@@ -239,5 +240,32 @@ Route::resource('documentos', DocumentoController::class); // Crea rutas REST: i
 Route::post('/indexaciones/upload', [IndexacionController::class, 'ocr']);
 Route::post('/indexaciones', [IndexacionController::class, 'store']);
 Route::post('/indexaciones/index', [IndexacionController::class, 'index']);
+
 Route::post('/indexaciones/obtenerCampos', [IndexacionController::class, 'obtenerCamposExtra']);
 Route::post('/indexaciones/indexbusqueda', [IndexacionController::class, 'buscarDocumento']);
+
+// Nueva ruta para servir PDFs con CORS
+
+
+
+use Illuminate\Support\Facades\Log;
+
+Route::get('pdf/storage/public/{modulo}/{filename}', function ($modulo, $filename) {
+    Log::info("Ruta /pdf llamada para módulo={$modulo} archivo={$filename}");
+//dd("Ruta Laravel llamada para archivo: $filename");
+    $path = public_path("storage/public/{$modulo}/{$filename}");
+
+    if (!file_exists($path)) {
+        Log::error("Archivo no encontrado en ruta /pdf: {$path}");
+        abort(404, 'Archivo no encontrado.');
+    }
+
+    return Response::file($path, [
+        'Access-Control-Allow-Origin' => '*',
+        'Content-Type' => 'application/pdf',
+    ]);
+})->where('filename', '.*');
+
+
+
+
