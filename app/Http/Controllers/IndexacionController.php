@@ -170,23 +170,25 @@ public function store(Request $request)
 
 
     // Método para traer siempre todos los campos_extra de la tabla indexaciones
-   public function obtenerCamposExtra(Request $request)
-{
-   // dd($request->all());
-    $idModulo = $request->input('idModulo'); // Obtiene idModulo del body JSON
+    public function obtenerCamposExtraConfigurados(Request $request)
+    {
+        $idModulo = $request->input('idModulo');
 
-    if (!$idModulo) {
-        return response()->json(['error' => 'Falta idModulo'], 400);
+        if (!$idModulo) {
+            return response()->json(['error' => 'Falta idModulo'], 400);
+        }
+
+        $camposExtras = Indexacion::where('id_modulo', $idModulo)
+        ->pluck('campos_extra') // ← esto es un array de arrays
+        ->flatten(1) // Aplana un nivel
+        ->unique('titulo') // Filtra por título único
+        ->values(); // Reindexa
+
+            return response()->json([
+            'campos_extra' => $camposExtras,
+        ]);
     }
 
-    $camposExtras = Indexacion::where('id_modulo', $idModulo)
-                              ->select('campos_extra')
-                              ->get();
-
-    return response()->json([
-        'campos_extra' => $camposExtras,
-    ]);
-}
 
 
 
