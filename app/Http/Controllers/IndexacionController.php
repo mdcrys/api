@@ -7,6 +7,12 @@ use App\Models\Indexacion;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
 
+
+use ZipArchive;
+use Smalot\PdfParser\Parser; // O la librería que uses para PDF
+use setasign\Fpdi\Fpdi; // Para manipular PDFs página a página
+
+
 class IndexacionController extends Controller
 {
 public function ocr(Request $request)
@@ -29,7 +35,6 @@ public function ocr(Request $request)
     $archivosProcesados = [];
     $erroresOCR = [];
 
-    // Calcular el siguiente contador global
     $archivosExistentes = glob($carpeta . DIRECTORY_SEPARATOR . "*_MODULO{$moduloId}_*.pdf");
     $contadorGlobal = count($archivosExistentes) > 0 ? count($archivosExistentes) + 1 : 1;
 
@@ -47,14 +52,19 @@ public function ocr(Request $request)
         if (!file_exists($rutaArchivo)) {
             Log::error("Archivo NO encontrado: {$rutaArchivo}");
             $erroresOCR[] = "{$nuevoNombre} no encontrado en el servidor.";
+            $contadorGlobal++;
             continue;
         }
 
         $rutaOCR = $carpeta . DIRECTORY_SEPARATOR . "{$nombreBase}_MODULO{$moduloId}_{$contadorGlobal}_OCR.pdf";
 
+        // Mejorar imagen y hacer OCR
+        $command = "ocrmypdf --force-ocr --clean --clean-final --remove-background --deskew "
+                   . escapeshellarg($rutaArchivo) . " "
+                   . escapeshellarg($rutaOCR) . " 2>&1";
+
         $output = [];
         $returnVar = 0;
-        $command = "ocrmypdf --force-ocr " . escapeshellarg($rutaArchivo) . " " . escapeshellarg($rutaOCR) . " 2>&1";
         exec($command, $output, $returnVar);
         $joinedOutput = implode("\n", $output);
 
@@ -67,14 +77,36 @@ public function ocr(Request $request)
                 Log::error("Salida OCRmyPDF: " . $joinedOutput);
                 $erroresOCR[] = "Error al procesar {$nuevoNombre}";
             }
+            $contadorGlobal++;
             continue;
         }
 
-        // Reemplazar el original por el que tiene OCR
+        // Reemplazar original con PDF OCR
         if (!rename($rutaOCR, $rutaArchivo)) {
             Log::error("No se pudo reemplazar el archivo original con OCR: {$rutaArchivo}");
             $erroresOCR[] = "No se pudo reemplazar el archivo original con OCR para {$nuevoNombre}";
+            $contadorGlobal++;
             continue;
+        }
+
+        // Extraer texto con pdftotext
+        $rutaTxt = $carpeta . DIRECTORY_SEPARATOR . "{$nombreBase}_MODULO{$moduloId}_{$contadorGlobal}.txt";
+        $outputTxt = [];
+        $returnVarTxt = 0;
+        $commandTxt = "pdftotext " . escapeshellarg($rutaArchivo) . " -";
+        exec($commandTxt, $outputTxt, $returnVarTxt);
+
+        Log::info("Salida pdftotext para {$nuevoNombre}: " . implode("\n", $outputTxt));
+        Log::info("Código de retorno pdftotext: " . $returnVarTxt);
+
+        if ($returnVarTxt === 0 && count($outputTxt) > 0) {
+            $textoExtraido = implode("\n", $outputTxt);
+            file_put_contents($rutaTxt, $textoExtraido);
+            Log::info("Archivo TXT creado: {$rutaTxt}");
+        } else {
+            Log::error("Error extrayendo texto con pdftotext de: {$rutaArchivo}");
+            file_put_contents($rutaTxt, "Error extrayendo texto OCR para {$nuevoNombre}");
+            Log::error("Archivo TXT NO se pudo crear o está vacío: {$rutaTxt}");
         }
 
         $rutaRelativa = "api/pdf/storage/public/{$moduloId}/{$nuevoNombre}";
@@ -85,6 +117,8 @@ public function ocr(Request $request)
             'ruta_relativa' => $rutaRelativa,
             'url' => $url
         ];
+
+        $contadorGlobal++;
     }
 
     return response()->json([
@@ -93,6 +127,10 @@ public function ocr(Request $request)
         'errores_ocr' => $erroresOCR,
     ]);
 }
+
+
+
+
 
 
 
@@ -234,6 +272,79 @@ public function store(Request $request)
 }
 
 
+
+
+
+
+
+
+
+
+
+
+public function desunirPdf(Request $request)
+{
+    $request->validate([
+        'archivo_pdf' => 'required|file|mimes:pdf'
+    ]);
+
+    $pdfFile = $request->file('archivo_pdf');
+
+    // Crear carpeta temporal si no existe
+    $tempFolder = storage_path('app/temp');
+    if (!file_exists($tempFolder)) {
+        mkdir($tempFolder, 0777, true);
+    }
+
+    // Guardar archivo manualmente con nombre único
+    $filename = uniqid() . '.pdf';
+    $fullPath = $tempFolder . DIRECTORY_SEPARATOR . $filename;
+    $pdfFile->move($tempFolder, $filename);
+
+    // Abrir PDF con FPDI para contar páginas
+    $pdf = new Fpdi();
+    $pageCount = $pdf->setSourceFile($fullPath);
+
+    // Carpeta temporal para páginas separadas
+    $pagesPath = $tempFolder . DIRECTORY_SEPARATOR . 'pages_' . uniqid();
+    if (!file_exists($pagesPath)) {
+        mkdir($pagesPath, 0777, true);
+    }
+
+    // Extraer cada página a un PDF separado
+    for ($pageNo = 1; $pageNo <= $pageCount; $pageNo++) {
+        $pdfNew = new Fpdi();
+        $pdfNew->setSourceFile($fullPath); // <<== Aquí es clave
+        $pdfNew->AddPage();
+        $tplId = $pdfNew->importPage($pageNo);
+        $pdfNew->useTemplate($tplId);
+
+        $pageFile = $pagesPath . DIRECTORY_SEPARATOR . "pagina_{$pageNo}.pdf";
+        $pdfNew->Output('F', $pageFile);
+    }
+
+    // Crear ZIP con todas las páginas
+    $zipName = 'paginas_separadas_' . uniqid() . '.zip';
+    $zipPath = $tempFolder . DIRECTORY_SEPARATOR . $zipName;
+
+    $zip = new ZipArchive;
+    if ($zip->open($zipPath, ZipArchive::CREATE) === TRUE) {
+        $files = scandir($pagesPath);
+        foreach ($files as $file) {
+            if (in_array($file, ['.', '..'])) continue;
+            $zip->addFile($pagesPath . DIRECTORY_SEPARATOR . $file, $file);
+        }
+        $zip->close();
+    } else {
+        return response()->json(['error' => 'No se pudo crear el ZIP'], 500);
+    }
+
+    // Opcional: borrar archivos temporales si quieres
+    // Storage::deleteDirectory('temp');
+
+    // Retornar ZIP para descarga y borrar después
+    return response()->download($zipPath)->deleteFileAfterSend(true);
+}
 
 
 

@@ -266,6 +266,6 @@ Route::get('pdf/storage/public/{modulo}/{filename}', function ($modulo, $filenam
     ]);
 })->where('filename', '.*');
 
-
+Route::post('/desunir_pdf', [IndexacionController::class, 'desunirPdf']);
 
 

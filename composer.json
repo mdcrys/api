@@ -12,6 +12,8 @@
         "laravel/sanctum": "^3.3",
         "laravel/tinker": "^2.8",
         "maatwebsite/excel": "^3.1",
+        "setasign/fpdf": "^1.8",
+        "setasign/fpdi": "^2.6",
         "setasign/fpdi-tcpdf": "^2.3",
         "spatie/laravel-permission": "^6.4",
         "tymon/jwt-auth": "^2.1"
