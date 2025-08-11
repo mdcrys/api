@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
 
 
+
 use ZipArchive;
 use Smalot\PdfParser\Parser; // O la librería que uses para PDF
 use setasign\Fpdi\Fpdi; // Para manipular PDFs página a página
@@ -282,69 +283,123 @@ public function store(Request $request)
 
 
 
+
 public function desunirPdf(Request $request)
 {
     $request->validate([
         'archivo_pdf' => 'required|file|mimes:pdf'
     ]);
 
+    $apiKey = env('OPENAI_API_KEY');
+
     $pdfFile = $request->file('archivo_pdf');
 
-    // Crear carpeta temporal si no existe
     $tempFolder = storage_path('app/temp');
     if (!file_exists($tempFolder)) {
         mkdir($tempFolder, 0777, true);
     }
 
-    // Guardar archivo manualmente con nombre único
     $filename = uniqid() . '.pdf';
     $fullPath = $tempFolder . DIRECTORY_SEPARATOR . $filename;
     $pdfFile->move($tempFolder, $filename);
 
-    // Abrir PDF con FPDI para contar páginas
     $pdf = new Fpdi();
     $pageCount = $pdf->setSourceFile($fullPath);
 
-    // Carpeta temporal para páginas separadas
     $pagesPath = $tempFolder . DIRECTORY_SEPARATOR . 'pages_' . uniqid();
     if (!file_exists($pagesPath)) {
         mkdir($pagesPath, 0777, true);
     }
 
-    // Extraer cada página a un PDF separado
+    $zip = new ZipArchive;
+    $zipName = 'paginas_separadas_' . uniqid() . '.zip';
+    $zipPath = $tempFolder . DIRECTORY_SEPARATOR . $zipName;
+    if ($zip->open($zipPath, ZipArchive::CREATE) !== TRUE) {
+        return response()->json(['error' => 'No se pudo crear el ZIP'], 500);
+    }
+
     for ($pageNo = 1; $pageNo <= $pageCount; $pageNo++) {
         $pdfNew = new Fpdi();
-        $pdfNew->setSourceFile($fullPath); // <<== Aquí es clave
+        $pdfNew->setSourceFile($fullPath);
         $pdfNew->AddPage();
         $tplId = $pdfNew->importPage($pageNo);
         $pdfNew->useTemplate($tplId);
 
-        $pageFile = $pagesPath . DIRECTORY_SEPARATOR . "pagina_{$pageNo}.pdf";
-        $pdfNew->Output('F', $pageFile);
-    }
+        $pagePdfName = "pagina_{$pageNo}.pdf";
+        $pagePdfPath = $pagesPath . DIRECTORY_SEPARATOR . $pagePdfName;
+        $pdfNew->Output('F', $pagePdfPath);
 
-    // Crear ZIP con todas las páginas
-    $zipName = 'paginas_separadas_' . uniqid() . '.zip';
-    $zipPath = $tempFolder . DIRECTORY_SEPARATOR . $zipName;
+        // Convertir PDF página a imagen PNG para OCR
+        $imagePath = $pagesPath . DIRECTORY_SEPARATOR . "pagina_{$pageNo}.png";
 
-    $zip = new ZipArchive;
-    if ($zip->open($zipPath, ZipArchive::CREATE) === TRUE) {
-        $files = scandir($pagesPath);
-        foreach ($files as $file) {
-            if (in_array($file, ['.', '..'])) continue;
-            $zip->addFile($pagesPath . DIRECTORY_SEPARATOR . $file, $file);
+        // Usa Imagick para convertir PDF página a imagen PNG
+        $imagick = new \Imagick();
+        $imagick->setResolution(300, 300);
+        $imagick->readImage($pagePdfPath);
+        $imagick->setImageFormat('png');
+        $imagick->writeImage($imagePath);
+        $imagick->clear();
+        $imagick->destroy();
+
+        // Leer la imagen y convertir a base64 para OpenAI
+        $imgData = base64_encode(file_get_contents($imagePath));
+
+        // Preparar payload para OpenAI (usando chat completions con imagen)
+        $payload = [
+            "model" => "gpt-4o",
+            "messages" => [
+                [
+                    "role" => "user",
+                    "content" => [
+                        [
+                            "type" => "text",
+                            "text" => "Extrae TODO el texto visible de esta imagen. No expliques nada, solo devuelve el texto tal como aparece."
+                        ],
+                        [
+                            "type" => "image_url",
+                            "image_url" => [
+                                "url" => "data:image/png;base64,{$imgData}"
+                            ]
+                        ]
+                    ]
+                ]
+            ],
+            "max_tokens" => 3000,
+        ];
+
+        // Hacer la petición a OpenAI (puedes usar GuzzleHttp o curl)
+        $client = new \GuzzleHttp\Client();
+        $response = $client->post('https://api.openai.com/v1/chat/completions', [
+            'headers' => [
+                'Authorization' => "Bearer {$apiKey}",
+                'Content-Type' => 'application/json',
+            ],
+            'json' => $payload,
+        ]);
+
+        $responseBody = json_decode($response->getBody(), true);
+        $extractedText = '';
+        if (isset($responseBody['choices'][0]['message']['content'])) {
+            $extractedText = $responseBody['choices'][0]['message']['content'];
         }
-        $zip->close();
-    } else {
-        return response()->json(['error' => 'No se pudo crear el ZIP'], 500);
+
+        // Guardar texto en archivo .txt con el mismo nombre base que el PDF de la página
+        $txtPath = $pagesPath . DIRECTORY_SEPARATOR . "pagina_{$pageNo}.txt";
+        file_put_contents($txtPath, $extractedText);
+
+        // Añadir PDF y TXT al ZIP
+        $zip->addFile($pagePdfPath, $pagePdfName);
+        $zip->addFile($txtPath, "pagina_{$pageNo}.txt");
+
+        // Opcional: borrar la imagen PNG temporal si quieres
+        unlink($imagePath);
     }
 
-    // Opcional: borrar archivos temporales si quieres
-    // Storage::deleteDirectory('temp');
+    $zip->close();
 
-    // Retornar ZIP para descarga y borrar después
     return response()->download($zipPath)->deleteFileAfterSend(true);
 }
+
 
 
 
