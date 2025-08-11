@@ -246,6 +246,8 @@ Route::post('/indexaciones/indexbusqueda', [IndexacionController::class, 'buscar
 
 // Nueva ruta para servir PDFs con CORS
 
+Route::post('/desunir_pdf', [IndexacionController::class, 'desunirPdf']);
+//
 
 
 use Illuminate\Support\Facades\Log;
@@ -266,6 +268,5 @@ Route::get('pdf/storage/public/{modulo}/{filename}', function ($modulo, $filenam
     ]);
 })->where('filename', '.*');
 
-Route::post('/desunir_pdf', [IndexacionController::class, 'desunirPdf']);
-
+//
 
