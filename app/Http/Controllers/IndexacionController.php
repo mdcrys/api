@@ -6,13 +6,16 @@ use Illuminate\Http\Request;
 use App\Models\Indexacion;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
+use App\Jobs\ProcesarOcrJob;
+use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Cache;
 
-
+use setasign\Fpdf\Fpdf;
 
 use ZipArchive;
 use Smalot\PdfParser\Parser; // O la librería que uses para PDF
 use setasign\Fpdi\Fpdi; // Para manipular PDFs página a página
-
+use App\Jobs\ProcesarPdfJob;  // Job que vamos a crear
 
 class IndexacionController extends Controller
 {
@@ -276,6 +279,63 @@ public function store(Request $request)
 
 
 
+public function iniciarProcesoPdf(Request $request) {
+    $request->validate(['archivo_pdf' => 'required|file|mimes:pdf']);
+
+    $jobId = (string) Str::uuid();  // <-- Definir jobId aquí
+
+    $pdfFile = $request->file('archivo_pdf');
+
+    $tempFolder = storage_path('app/temp');
+    if (!file_exists($tempFolder)) {
+        mkdir($tempFolder, 0777, true);
+    }
+
+    $filename = uniqid() . '.pdf';
+    $fullPath = $tempFolder . DIRECTORY_SEPARATOR . $filename;
+
+    $pdfFile->move($tempFolder, $filename); // mover archivo para que el job lo procese
+
+    Cache::put("progreso_pdf_{$jobId}", [
+        'estado' => 'iniciado',
+        'total_paginas' => 0,
+        'paginas_procesadas' => 0,
+        'zip_path' => null,
+        'error' => null,
+    ], 3600);
+
+    ProcesarPdfJob::dispatch($fullPath, $jobId);
+
+    return response()->json(['jobId' => $jobId]);
+}
+
+
+public function progresoPdf($jobId) {
+    $progreso = Cache::get("progreso_pdf_{$jobId}");
+    if (!$progreso) {
+        return response()->json(['error' => 'Trabajo no encontrado'], 404);
+    }
+
+    // Si está finalizado, crear URL pública para descarga
+    if ($progreso['estado'] === 'finalizado' && isset($progreso['zip_path'])) {
+        $zipFileName = basename($progreso['zip_path']);
+        $progreso['zipUrl'] = url("/descargar_pdf/{$jobId}"); // esta es la ruta que descarga el zip
+    } else {
+        $progreso['zipUrl'] = null;
+    }
+
+    return response()->json($progreso);
+}
+
+
+public function descargarPdf($jobId)
+{
+    $filePath = storage_path("app/temp/paginas_separadas_{$jobId}.zip");
+    if (!file_exists($filePath)) {
+        abort(404, "Archivo no encontrado");
+    }
+    return response()->download($filePath);
+}
 
 
 
@@ -283,6 +343,14 @@ public function store(Request $request)
 
 
 
+
+
+
+
+
+
+
+/*
 
 public function desunirPdf(Request $request)
 {
@@ -329,19 +397,26 @@ public function desunirPdf(Request $request)
         $pagePdfPath = $pagesPath . DIRECTORY_SEPARATOR . $pagePdfName;
         $pdfNew->Output('F', $pagePdfPath);
 
-        // Convertir PDF página a imagen PNG para OCR
+        // Convertir PDF página a imagen PNG para OCR y mejorar imagen
         $imagePath = $pagesPath . DIRECTORY_SEPARATOR . "pagina_{$pageNo}.png";
 
-        // Usa Imagick para convertir PDF página a imagen PNG
         $imagick = new \Imagick();
         $imagick->setResolution(300, 300);
         $imagick->readImage($pagePdfPath);
+
+        // Mejorar la imagen para OCR
+        $imagick->setImageColorspace(\Imagick::COLORSPACE_GRAY);
+        $imagick->contrastImage(true);
+        $imagick->sharpenImage(1, 0.5);
+        // Opcional: despeckle para limpiar ruido
+        // $imagick->despeckleImage();
+
         $imagick->setImageFormat('png');
         $imagick->writeImage($imagePath);
         $imagick->clear();
         $imagick->destroy();
 
-        // Leer la imagen y convertir a base64 para OpenAI
+        // Leer la imagen mejorada y convertir a base64 para OpenAI
         $imgData = base64_encode(file_get_contents($imagePath));
 
         // Preparar payload para OpenAI (usando chat completions con imagen)
@@ -367,7 +442,6 @@ public function desunirPdf(Request $request)
             "max_tokens" => 3000,
         ];
 
-        // Hacer la petición a OpenAI (puedes usar GuzzleHttp o curl)
         $client = new \GuzzleHttp\Client();
         $response = $client->post('https://api.openai.com/v1/chat/completions', [
             'headers' => [
@@ -399,12 +473,121 @@ public function desunirPdf(Request $request)
 
     return response()->download($zipPath)->deleteFileAfterSend(true);
 }
+*/
+/*
+
+public function desunirPdf(Request $request)
+{
+    $request->validate([
+        'archivo_pdf' => 'required|file|mimes:pdf'
+    ]);
+
+    $pdfFile = $request->file('archivo_pdf');
+
+    $tempFolder = storage_path('app/temp');
+    if (!file_exists($tempFolder)) {
+        mkdir($tempFolder, 0777, true);
+    }
+
+    $idProceso = uniqid();
+    $filename = $idProceso . '.pdf';
+    $fullPath = $tempFolder . DIRECTORY_SEPARATOR . $filename;
+    $pdfFile->move($tempFolder, $filename);
+
+    // Guardamos ruta en cache para usar en stream y descarga
+    cache()->put('proceso_' . $idProceso . '_file', $fullPath, 3600);
+
+    // Retornamos solo el idProceso (no hacemos proceso pesado acá)
+    return response()->json(['idProceso' => $idProceso]);
+}
+
+
+public function streamProgresoPdf($idProceso)
+{
+    ignore_user_abort(true);
+    set_time_limit(0);
+
+    // Limpia buffers PHP y desactiva buffering
+    while (ob_get_level() > 0) {
+        ob_end_flush();
+    }
+    ob_implicit_flush(true);
+
+    header('Content-Type: text/event-stream');
+    header('Cache-Control: no-cache');
+    header('Connection: keep-alive');
+    header('Access-Control-Allow-Origin: *');
+
+    // Enviar un ping para desbloquear buffers del navegador
+    echo ": ping\n\n";
+    flush();
+
+    $fullPath = cache()->get('proceso_' . $idProceso . '_file');
+    if (!$fullPath) {
+        echo "data: Error: proceso no encontrado\n\n";
+        flush();
+        return;
+    }
+
+    $pdf = new \setasign\Fpdi\Fpdi();
+    $pageCount = $pdf->setSourceFile($fullPath);
+
+    $pagesPath = storage_path('app/temp/pages_' . $idProceso);
+    if (!file_exists($pagesPath)) mkdir($pagesPath, 0777, true);
+
+    $zip = new \ZipArchive();
+    $zipName = 'paginas_separadas_' . $idProceso . '.zip';
+    $zipPath = storage_path('app/temp/' . $zipName);
+    if ($zip->open($zipPath, \ZipArchive::CREATE) !== TRUE) {
+        echo "data: Error al crear ZIP\n\n";
+        flush();
+        return;
+    }
+
+    for ($pageNo = 1; $pageNo <= $pageCount; $pageNo++) {
+        $pdfNew = new \setasign\Fpdi\Fpdi();
+        $pdfNew->setSourceFile($fullPath);
+        $pdfNew->AddPage();
+        $tplId = $pdfNew->importPage($pageNo);
+        $pdfNew->useTemplate($tplId);
+
+        $pagePdfName = "pagina_{$pageNo}.pdf";
+        $pagePdfPath = $pagesPath . DIRECTORY_SEPARATOR . $pagePdfName;
+        $pdfNew->Output('F', $pagePdfPath);
+
+        $zip->addFile($pagePdfPath, $pagePdfName);
+
+        echo "data: Imagen desunida {$pageNo}\n\n";
+        flush();
+
+        // Opcional: para probar el envío espaciado en el tiempo
+        usleep(500000); // 0.5 segundos (500,000 microsegundos)
+    }
+
+    $zip->close();
+
+    echo "data: Proceso finalizado\n\n";
+    flush();
+}
 
 
 
 
 
 
+public function descargarZip($idProceso)
+{
+    $zipName = 'paginas_separadas_' . $idProceso . '.zip';
+    $zipPath = storage_path('app/temp/' . $zipName);
+
+    if (!file_exists($zipPath)) {
+        return response()->json(['error' => 'Archivo ZIP no encontrado'], 404);
+    }
+
+    return response()->download($zipPath)->deleteFileAfterSend(true);
+}
+
+*/
 
 
 
