@@ -81,7 +81,7 @@ class ProcesarPdfJob implements ShouldQueue
 
                 // Preparar base64 para OpenAI
                 $imgData = base64_encode(file_get_contents($imagePath));
-                $apiKey = env('OPENAI_API_KEY');
+                $apiKey = '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';
 
                 $payload = [
                     "model" => "gpt-4o",
