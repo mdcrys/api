@@ -1,5 +1,6 @@
 <?php
 
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
@@ -44,6 +45,7 @@ use App\Http\Controllers\ModuloController;
 use App\Http\Controllers\SeccionController;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Response;
+use Illuminate\Support\Facades\Cache;
 /*
 |--------------------------------------------------------------------------
 | API Routes
@@ -246,7 +248,7 @@ Route::post('/indexaciones/indexbusqueda', [IndexacionController::class, 'buscar
 
 // Nueva ruta para servir PDFs con CORS
 
-Route::post('/desunir_pdf', [IndexacionController::class, 'desunirPdf']);
+
 //
 
 
@@ -269,4 +271,28 @@ Route::get('pdf/storage/public/{modulo}/{filename}', function ($modulo, $filenam
 })->where('filename', '.*');
 
 //
+
+Route::post('/iniciar_proceso_pdf', [IndexacionController::class, 'iniciarProcesoPdf']);
+Route::get('/progreso_pdf/{jobId}', [IndexacionController::class, 'progresoPdf']);
+//Route::get('/descargar_pdf/{fileSuffix}', [IndexacionController::class, 'descargarZip']);
+
+
+
+Route::get('/descargar_pdf/{jobId}', function ($jobId) {
+    $data = Cache::get("progreso_pdf_{$jobId}");
+    if (!$data || $data['estado'] !== 'finalizado') {
+        abort(404, 'Archivo no disponible');
+    }
+
+    $zipPath = $data['zip_path'];
+    $zipName = $data['zip_name'] ?? "archivo_{$jobId}.zip";
+
+    if (!file_exists($zipPath)) {
+        abort(404, 'Archivo no encontrado');
+    }
+
+    return response()->download($zipPath, $zipName);
+});
+
+
 
