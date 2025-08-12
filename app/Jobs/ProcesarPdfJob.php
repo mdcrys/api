@@ -29,7 +29,7 @@ class ProcesarPdfJob implements ShouldQueue
 
     public function handle()
     {
-          \Log::info("Procesando ahora si desde aui job con ID: {$this->jobId}");
+         // \Log::info("Procesando ahora si desde aui job con ID: {$this->jobId}");
         try {
             $tempFolder = storage_path('app/temp');
             $pagesPath = $tempFolder . DIRECTORY_SEPARATOR . 'pages_' . uniqid();
@@ -46,9 +46,7 @@ class ProcesarPdfJob implements ShouldQueue
                 'error' => null,
             ], 3600);
 
-            \Log::info("Procesando job con ID para colcoar al zip: {$this->jobId}");
-            \Log::info("jobId para crear ZIP: {$this->jobId}");
-            $zip = new ZipArchive;
+             $zip = new ZipArchive;
             $zipName = 'paginas_separadas_' . $this->jobId . '.zip';
             $zipPath = $tempFolder . DIRECTORY_SEPARATOR . $zipName;
 

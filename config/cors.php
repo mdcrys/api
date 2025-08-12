@@ -15,7 +15,8 @@ return [
     |
     */
 
-'paths' => ['api/*', 'sanctum/csrf-cookie', 'storage/*'],
+'paths' => ['api/*', 'sanctum/csrf-cookie', 'storage/*', 'stream_progreso_pdf/*'],
+
 
 
     'allowed_methods' => ['*'],
