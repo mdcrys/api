@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Log;
 use App\Jobs\ProcesarOcrJob;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Cache;
+use App\Models\Proyecto;
 
 use setasign\Fpdf\Fpdf;
 
@@ -140,12 +141,17 @@ public function ocr(Request $request)
 
 public function store(Request $request)
 {
+    // Para depuración
+    // dd($request->all());
+
     $request->validate([
+        'idProyecto' => 'required|integer', // ✅ Validamos idProyecto
         'idModulo' => 'required|integer',
         'campos' => 'required|string',
         'archivos.*' => 'file|mimes:pdf,doc,docx,jpg,jpeg,png|max:10240',
     ]);
 
+    $idProyecto = $request->input('idProyecto'); // ✅ Obtenemos idProyecto
     $idModulo = $request->input('idModulo');
     $campos = json_decode($request->input('campos'), true);
 
@@ -159,25 +165,22 @@ public function store(Request $request)
             if ($archivo->isValid()) {
                 $carpetaDestino = 'public/documentos';
 
-                // Obtener nombre base y extensión
                 $nombreBase = pathinfo($archivo->getClientOriginalName(), PATHINFO_FILENAME);
                 $extension = $archivo->getClientOriginalExtension();
-
-                // Crear nombre único para evitar sobrescritura
                 $nombreArchivo = $nombreBase . '_' . time() . '.' . $extension;
 
-                // Guardar archivo con el nombre único
                 $ruta = $archivo->storeAs($carpetaDestino, $nombreArchivo);
-
                 $archivosGuardados[] = $ruta;
             }
         }
     }
 
+    // ✅ Crear indexación incluyendo idProyecto
     $indexacion = Indexacion::create([
+        'id_proyecto' => $idProyecto,       // Aquí se guarda el id del proyecto
         'id_modulo' => $idModulo,
         'campos_extra' => $campos,
-        'archivo_url' => json_encode($archivosGuardados), // Guardar rutas como JSON
+        'archivo_url' => json_encode($archivosGuardados),
         'estado' => 1,
         'creado_en' => now(),
         'updated_at' => now(),
@@ -188,6 +191,7 @@ public function store(Request $request)
         'indexacion' => $indexacion,
     ]);
 }
+
 
 
  public function index(Request $request)
@@ -214,17 +218,27 @@ public function store(Request $request)
     // Método para traer siempre todos los campos_extra de la tabla indexaciones
    public function obtenerCamposExtra(Request $request)
     {
-        $idModulo = $request->input('idModulo');
+        $idProyecto = $request->input('idProyecto');
 
-        if (!$idModulo) {
-            return response()->json(['error' => 'Falta idModulo'], 400);
+        if (!$idProyecto) {
+            return response()->json(['error' => 'Falta idProyecto'], 400);
         }
 
-        // Obtener todos los campos_extra de ese módulo
-        $registros = Indexacion::where('id_modulo', $idModulo)
+        // Obtener todos los campos_extra de todas las indexaciones de ese proyecto
+        $registros = Indexacion::where('id_proyecto', $idProyecto)
             ->pluck('campos_extra');
 
+        // Aplanar los arrays y obtener títulos únicos
         $titulosUnicos = collect($registros)
+            ->map(function ($campos) {
+                if (is_array($campos)) {
+                    return $campos; // ya está decodificado
+                }
+                if (is_string($campos)) {
+                    return json_decode($campos, true) ?: [];
+                }
+                return [];
+            })
             ->flatten(1)
             ->unique('titulo')
             ->values();
@@ -236,31 +250,35 @@ public function store(Request $request)
 
 
 
-    public function buscarDocumento(Request $request)
+
+
+  public function buscarDocumento(Request $request)
 {
-    $idModulo = $request->input('id_modulo');
+    $idProyecto = $request->input('id_proyecto');
     $campoValor = $request->input('campo_valor');
     $page = $request->input('page', 1);
-    $perPage = 10; // Por ejemplo
+    $perPage = 10;
 
-    $query = Indexacion::query();
+    $query = Indexacion::with([
+        'proyecto.parent',
+        'proyecto.subsecciones',
+        'proyecto.empresa',
+        'proyecto.modulos'
+    ]);
 
-    // Filtrar por id_modulo
-    if ($idModulo) {
-        $query->where('id_modulo', $idModulo);
+    // Filtrar por id_proyecto
+    if ($idProyecto) {
+        $query->where('id_proyecto', $idProyecto);
     }
 
     // Si existe texto para buscar en campos_extra
     if ($campoValor) {
-        // Dividir la cadena de búsqueda en palabras para hacer búsqueda parcial
         $palabras = explode(' ', $campoValor);
 
-        // Buscar en JSON: MySQL 5.7+ permite usar JSON_CONTAINS, pero aquí buscamos en campo 'valor'
         $query->where(function($q) use ($palabras) {
             foreach ($palabras as $palabra) {
                 $palabra = trim($palabra);
                 if ($palabra !== '') {
-                    // Hacemos búsqueda LIKE en el JSON codificado en campos_extra buscando la palabra dentro de "valor"
                     $q->orWhere('campos_extra', 'LIKE', '%"valor":"%' . $palabra . '%"%');
                 }
             }
@@ -274,6 +292,8 @@ public function store(Request $request)
         'documentos' => $resultados,
     ]);
 }
+
+
 
 
 
@@ -338,6 +358,76 @@ public function descargarPdf($jobId)
 }
 
 
+
+public function DatosNombre(Request $request)
+{
+    $request->validate([
+        'id' => 'required|integer',
+    ]);
+
+    $id = $request->input('id');
+
+    // Buscar proyecto con relaciones
+    $proyecto = Proyecto::with(['subsecciones', 'empresa', 'modulos'])
+        ->find($id);
+
+    if (!$proyecto) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Proyecto no encontrado',
+        ], 404);
+    }
+
+    // Tomar el primer módulo asociado (si existe)
+    $idModulo = $proyecto->modulos->first()->id_modulo ?? null;
+
+    // ✅ Buscar registros en indexaciones usando id_proyecto
+    $indexaciones = Indexacion::where('id_proyecto', $id)->get();
+
+    return response()->json([
+        'success'      => true,
+        'data'         => $proyecto,
+        'idModulo'     => $idModulo,
+        'indexaciones' => $indexaciones, // agregamos los registros de la tabla indexaciones
+    ]);
+}
+
+
+
+
+
+public function DatosNombreSerie(Request $request)
+{
+    $request->validate([
+        'id' => 'required|integer',
+    ]);
+
+    $id = $request->input('id');
+
+    // Buscar proyecto con relaciones
+    $proyecto = Proyecto::with(['subsecciones', 'empresa', 'modulos'])
+        ->find($id);
+
+    if (!$proyecto) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Proyecto no encontrado',
+        ], 404);
+    }
+
+    // Tomar el primer módulo asociado (si existe)
+    $idModulo = $proyecto->modulos->first()->id_modulo ?? null;
+
+    // ✅ Buscar registros en indexaciones usando id_proyecto
+    $indexaciones = Indexacion::where('id_proyecto', $id)->get();
+
+    return response()->json([
+        'success'      => true,
+        'data'         => $proyecto,
+        'idModulo'     => $idModulo,
+        'indexaciones' => $indexaciones, // agregamos los registros de la tabla indexaciones
+    ]);
+}
 
 
 

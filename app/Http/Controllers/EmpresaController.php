@@ -5,6 +5,8 @@ use Spatie\Permission\Models\Role;
 use Illuminate\Http\Request;
 use App\Models\Empresa;
 use Illuminate\Support\Facades\Storage;
+use App\Models\User;
+use Spatie\Permission\Models\Permission;
 
 class EmpresaController extends Controller
 {
@@ -35,9 +37,9 @@ class EmpresaController extends Controller
 
 
 
-
 public function store(Request $request)
 {
+    //dd($request->all());
     // Verifica si el RUC ya existe
     if ($request->has('ruc_empresa')) {
         $existe = Empresa::where("ruc_empresa", $request->ruc_empresa)->first();
@@ -73,18 +75,51 @@ public function store(Request $request)
     $usuario->email = $request->input('admin_correo');
     $usuario->password = bcrypt($request->input('admin_password'));
     $usuario->id_empresa = $empresa->id_empresa;
-    $usuario->role_id = 2; // ROL ADMINISTRADOR FIJO
     $usuario->save();
 
-    // Buscar el rol 'Admin' con guard 'api'
-    $role = Role::where('name', 'Admin')->where('guard_name', 'api')->first();
-    if ($role) {
-        $usuario->assignRole($role);
-    } else {
-        // Opcional: log o respuesta de error si el rol no existe
-        \Log::error("El rol Admin con guard api no existe.");
+    // Limpiar cache de Spatie
+    app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
+
+    // Crear rol único por empresa: Admin-{nombre_empresa}
+    $rolNombre = "Admin-" . $empresa->nombre_empresa;
+
+    $role = \Spatie\Permission\Models\Role::where('name', $rolNombre)
+        ->where('guard_name', 'api')
+        ->where('id_empresa', $empresa->id_empresa)
+        ->first();
+
+    if (!$role) {
+        $role = \Spatie\Permission\Models\Role::create([
+            'name' => $rolNombre,
+            'guard_name' => 'api',
+            'id_empresa' => $empresa->id_empresa
+        ]);
     }
 
+    // Lista de permisos recibidos desde la request
+    $permisos = json_decode($request->input('permisos'), true) ?? [];
+
+    // Filtrar solo los permisos que realmente existen en la tabla permissions
+    $permisosExistentes = \Spatie\Permission\Models\Permission::whereIn('name', $permisos)
+        ->where('guard_name', 'api')
+        ->pluck('name')
+        ->toArray();
+
+    // Asignar solo los permisos existentes al rol
+    if (!empty($permisosExistentes)) {
+        $role->syncPermissions($permisosExistentes);
+    }
+
+    // Asignar rol al usuario
+    $usuario->assignRole($role);
+
+    // Mostrar los permisos asignados al usuario para debug
+    // Guardar role_id en la tabla users
+    $usuario->role_id = $role->id;
+    $usuario->save();
+
+
+    // Respuesta JSON
     return response()->json([
         "message" => 200,
         "empresa" => [
@@ -102,10 +137,16 @@ public function store(Request $request)
             "nombre" => $usuario->name,
             "apellido" => $usuario->surname,
             "correo" => $usuario->email,
-            "empresa" => $usuario->id_empresa
+            "empresa" => $usuario->id_empresa,
+            "rol" => $rolNombre,
+            "permisos" => $permisosExistentes
         ]
     ]);
 }
+
+
+
+
 
 
 

@@ -43,6 +43,7 @@ use App\Http\Controllers\IndexacionController;
 use App\Http\Controllers\ProyectoController;
 use App\Http\Controllers\ModuloController;
 use App\Http\Controllers\SeccionController;
+use App\Http\Controllers\SerieController;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Response;
 use Illuminate\Support\Facades\Cache;
@@ -296,3 +297,46 @@ Route::get('/descargar_pdf/{jobId}', function ($jobId) {
 
 
 
+//SECCIONES
+Route::post('/proyectosDatos', [ProyectoController::class, 'DatosProyecto']);
+Route::get('/subsecciones', [ProyectoController::class, 'listSubsecciones']);
+Route::post('/subseccionesingreso', [ProyectoController::class, 'guardarSubseccion']);  
+
+
+
+
+//SUB - SECCIONES
+// routes/api.php
+Route::post('/subseccionDatos', [ProyectoController::class, 'DatosSubSeccion']);
+Route::get('/subsecciones1', [ProyectoController::class, 'listSubsecciones1']);
+Route::post('/subseccionesingreso1', [ProyectoController::class, 'guardarSubseccion1']);  
+
+//SUB - SECCIONES 2
+Route::post('/subseccion1Datos', [ProyectoController::class, 'DatosSubSeccion1']);
+Route::get('/subsecciones2', [ProyectoController::class, 'listSubsecciones2']);
+Route::post('/subseccionesingreso2', [ProyectoController::class, 'guardarSubseccion2']);  
+
+
+//SERIE
+Route::post('/DatosSubSerie', [ProyectoController::class, 'DatosSubSeccionSerie']);
+Route::post('/DatosSerie', [SerieController::class, 'DatosSubSeccionSerie']);
+Route::get('/listserie', [SerieController::class, 'listSerie']);
+Route::post('/serie', [SerieController::class, 'guardarSerie']);  
+
+
+
+
+//SUB - SERIE
+
+Route::post('/DatosSerie', [SerieController::class, 'DatosSerie']);
+Route::post('/DatosSubseccionNombre', [SerieController::class, 'DatosSubseccionNombre']);
+Route::get('/listserie', [SerieController::class, 'listSerie']);
+Route::post('/subSerieStore', [SerieController::class, 'guardarSubSerie']);  
+Route::get('/listarsubserie', [SerieController::class, 'indexSubSerie']);  
+
+
+//Documentacion
+Route::post('/DatosNombre', [IndexacionController::class, 'DatosNombre']);
+
+//Documentacion-Serie
+Route::post('/DatosNombreSerie', [IndexacionController::class, 'DatosNombreSerie']);
