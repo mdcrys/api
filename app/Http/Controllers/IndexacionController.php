@@ -1,7 +1,7 @@
 <?php
 
 namespace App\Http\Controllers;
-
+use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
 use App\Models\Indexacion;
 use Illuminate\Support\Facades\Storage;
@@ -10,6 +10,7 @@ use App\Jobs\ProcesarOcrJob;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Cache;
 use App\Models\Proyecto;
+use App\Models\Serie;
 
 use setasign\Fpdf\Fpdf;
 
@@ -20,6 +21,10 @@ use App\Jobs\ProcesarPdfJob;  // Job que vamos a crear
 
 class IndexacionController extends Controller
 {
+
+    
+    // Carpeta temporal para PDFs subidos
+    private $tmpPath = 'tmp_uploads';
 public function ocr(Request $request)
 {
     $request->validate([
@@ -146,7 +151,7 @@ public function store(Request $request)
 
     $request->validate([
         'idProyecto' => 'required|integer', // ✅ Validamos idProyecto
-        'idModulo' => 'required|integer',
+        
         'campos' => 'required|string',
         'archivos.*' => 'file|mimes:pdf,doc,docx,jpg,jpeg,png|max:10240',
     ]);
@@ -398,6 +403,7 @@ public function DatosNombre(Request $request)
 
 public function DatosNombreSerie(Request $request)
 {
+    //dd($request->all());
     $request->validate([
         'id' => 'required|integer',
     ]);
@@ -434,10 +440,384 @@ public function DatosNombreSerie(Request $request)
 
 
 
+public function storeIndexacionSerie(Request $request)
+{
+    // Validación
+    $request->validate([
+        'idSerie' => 'required|integer', // ✅ Validamos idSerie
+        'campos' => 'required|string',
+        'archivos.*' => 'file|mimes:pdf,doc,docx,jpg,jpeg,png|max:10240',
+    ]);
+
+    $idSerie = $request->input('idSerie'); // ✅ Obtenemos idSerie
+    $campos = json_decode($request->input('campos'), true);
+
+    if ($campos === null) {
+        return response()->json(['error' => 'Campos JSON inválido'], 400);
+    }
+
+    // Guardar archivos
+    $archivosGuardados = [];
+    if ($request->hasFile('archivos')) {
+        foreach ($request->file('archivos') as $archivo) {
+            if ($archivo->isValid()) {
+                $carpetaDestino = 'public/documentos';
+                $nombreBase = pathinfo($archivo->getClientOriginalName(), PATHINFO_FILENAME);
+                $extension = $archivo->getClientOriginalExtension();
+                $nombreArchivo = $nombreBase . '_' . time() . '.' . $extension;
+                $ruta = $archivo->storeAs($carpetaDestino, $nombreArchivo);
+                $archivosGuardados[] = $ruta;
+            }
+        }
+    }
+
+    // Crear indexación incluyendo solo idSerie
+    $indexacion = Indexacion::create([
+        'id_serie' => $idSerie,                   // ✅ guardamos idSerie
+        'campos_extra' => $campos,
+        'archivo_url' => json_encode($archivosGuardados),
+        'estado' => 1,
+        'creado_en' => now(),
+        'updated_at' => now(),
+    ]);
+
+    return response()->json([
+        'mensaje' => 'Datos guardados correctamente',
+        'indexacion' => $indexacion,
+    ]);
+}
 
 
 
 
+
+
+public function DatosIndexacionSerie(Request $request)
+{
+    // Para depurar
+   //dd($request->all());
+
+    $request->validate([
+        'id' => 'required|integer',
+    ]);
+
+    $idSerie = $request->input('id');
+
+    // Buscar la serie con sus relaciones
+    $serie = Serie::with(['hijos', 'empresa', 'padre'])
+        ->find($idSerie);
+
+    if (!$serie) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Serie no encontrada',
+        ], 404);
+    }
+
+    // Obtener indexaciones relacionadas con esta serie
+    $indexaciones = Indexacion::where('id_serie', $idSerie)->get();
+
+    return response()->json([
+        'success'      => true,
+        'data'         => $serie,
+        'indexaciones' => $indexaciones,
+    ]);
+}
+
+
+
+
+
+
+
+    // Método para traer siempre todos los campos_extra de la tabla indexaciones
+ public function obtenerCamposExtraSerie(Request $request)
+{
+    $idSerie = $request->input('idSerie'); // ✅ ahora usamos idSerie
+
+    if (!$idSerie) {
+        return response()->json(['error' => 'Falta idSerie'], 400);
+    }
+
+    // Obtener todos los campos_extra de todas las indexaciones de esa serie
+    $registros = Indexacion::where('id_serie', $idSerie)
+        ->pluck('campos_extra');
+
+    // Aplanar los arrays y obtener títulos únicos
+    $titulosUnicos = collect($registros)
+        ->map(function ($campos) {
+            if (is_array($campos)) {
+                return $campos; // ya está decodificado
+            }
+            if (is_string($campos)) {
+                return json_decode($campos, true) ?: [];
+            }
+            return [];
+        })
+        ->flatten(1)
+        ->unique('titulo')
+        ->values();
+
+    return response()->json([
+        'campos_extra' => $titulosUnicos,
+    ]);
+}
+
+
+
+
+
+public function archivos(Request $request)
+{
+    $request->validate([
+        'id_proyecto' => 'required|integer',
+        'archivos' => 'required|array',
+        'archivos.*' => 'file|mimes:pdf,zip',
+    ]);
+
+    $proyectoId = $request->id_proyecto;
+    $carpeta = storage_path("app/public/{$proyectoId}");
+
+    if (!file_exists($carpeta)) mkdir($carpeta, 0755, true);
+
+    $archivosProcesados = [];
+
+    foreach ($request->file('archivos') as $archivo) {
+        $extension = $archivo->getClientOriginalExtension();
+
+        if ($extension === 'zip') {
+            $zip = new ZipArchive;
+            if ($zip->open($archivo->getRealPath()) === true) {
+                $zip->extractTo($carpeta);
+                $zip->close();
+
+                $pdfsExtraidos = glob($carpeta . DIRECTORY_SEPARATOR . '*.pdf');
+                foreach ($pdfsExtraidos as $pdfPath) {
+                    $this->procesarPDF($pdfPath, $proyectoId, $archivosProcesados);
+                }
+            }
+        } else {
+            $rutaArchivo = $carpeta . DIRECTORY_SEPARATOR . $archivo->getClientOriginalName();
+            $archivo->move($carpeta, $archivo->getClientOriginalName());
+            $this->procesarPDF($rutaArchivo, $proyectoId, $archivosProcesados);
+        }
+    }
+
+    return response()->json([
+        'message' => 'Archivos procesados correctamente',
+        'archivos' => $archivosProcesados,
+    ]);
+}
+
+private function procesarPDF($archivo, $proyectoId, &$archivosProcesados)
+{
+    $pdf = new Fpdi();
+
+    try {
+        $pageCount = $pdf->setSourceFile($archivo);
+    } catch (\Exception $e) {
+        \Log::error("Error procesando PDF: {$archivo} - " . $e->getMessage());
+        $pageCount = 1;
+    }
+
+    if ($pageCount > 1) {
+        // ✅ Solo avisamos que tiene varias páginas y dejamos para separar
+        $archivosProcesados[] = [
+            'nombre' => basename($archivo),
+            'paginas' => $pageCount,
+            'mensaje' => "Este PDF tiene {$pageCount} páginas. Puedes separarlo antes de guardarlo."
+        ];
+        return; // No lo registramos aún
+    }
+
+    // 🔹 PDF de 1 página, registramos directamente
+    $this->registrarPDF($archivo, $proyectoId, $archivosProcesados);
+}
+
+private function registrarPDF($archivo, $proyectoId, &$archivosProcesados)
+{
+    $nombreArchivo = basename($archivo);
+    $rutaCarpeta = storage_path("app/public/documentos/seccion/{$proyectoId}");
+    if (!file_exists($rutaCarpeta)) mkdir($rutaCarpeta, 0755, true);
+
+    $nuevaRuta = $rutaCarpeta . DIRECTORY_SEPARATOR . $nombreArchivo;
+    rename($archivo, $nuevaRuta);
+
+    $rutaRelativa = "storage/documentos/seccion/{$proyectoId}/{$nombreArchivo}";
+
+    $idIndexacion = DB::table('indexaciones')->insertGetId([
+        'id_proyecto' => $proyectoId,
+        'archivo_url' => $rutaRelativa,
+        'estado'      => 1,
+        'creado_en'   => now(),
+        'updated_at'  => now(),
+    ]);
+
+    $archivosProcesados[] = [
+        'id_indexacion' => $idIndexacion,
+        'nombre'        => $nombreArchivo,
+        'ruta_relativa' => $rutaRelativa,
+        'url'           => asset($rutaRelativa)
+    ];
+}
+
+
+
+public function separar(Request $request)
+{
+    $request->validate([
+        'nombreArchivo' => 'required|string',
+        'id_proyecto' => 'required|integer'
+    ]);
+
+    $nombreArchivo = $request->nombreArchivo;
+    $idProyecto = $request->id_proyecto;
+
+    $rutaArchivo = storage_path("app/public/documentos/{$idProyecto}/{$nombreArchivo}");
+
+    if (!file_exists($rutaArchivo)) {
+        return response()->json(['error' => 'Archivo no encontrado'], 404);
+    }
+
+    $pdfsSeparados = [];
+
+    try {
+        $pdf = new \setasign\Fpdi\Fpdi();
+        $pageCount = $pdf->setSourceFile($rutaArchivo);
+
+        for ($pageNo = 1; $pageNo <= $pageCount; $pageNo++) {
+            $newPdf = new \setasign\Fpdi\Fpdi();
+            $newPdf->AddPage();
+            $tplIdx = $newPdf->importPage($pageNo);
+            $newPdf->useTemplate($tplIdx);
+
+            $tmpName = 'pagina_' . $pageNo . '_' . $nombreArchivo;
+
+            $tmpPdfPath = storage_path("app/public/tmp_uploads/{$tmpName}");
+            $newPdf->Output($tmpPdfPath, 'F');
+
+            $fileContent = file_get_contents($tmpPdfPath);
+            $pdfsSeparados[] = [
+                'nombre' => $tmpName,
+                'file' => base64_encode($fileContent)
+            ];
+
+            unlink($tmpPdfPath);
+        }
+
+        return response()->json($pdfsSeparados);
+
+    } catch (\Exception $e) {
+        return response()->json(['error' => $e->getMessage()], 500);
+    }
+}
+
+
+
+
+
+
+
+
+
+
+public function archivosSerie(Request $request)
+{
+    $request->validate([
+        'archivos' => 'required|array',
+        'archivos.*' => 'file|mimes:pdf,zip',
+        'id_serie' => 'required|integer', // 👈 Recibimos idSerie
+    ]);
+
+    $idSerie = $request->input('id_serie'); // ✅ Obtenemos idSerie
+
+    // Carpeta genérica temporal para subir archivos
+    $carpeta = storage_path("app/public/archivos"); 
+    if (!file_exists($carpeta)) {
+        mkdir($carpeta, 0755, true);
+    }
+
+    $archivosProcesados = [];
+
+    foreach ($request->file('archivos') as $archivo) {
+        $extension = $archivo->getClientOriginalExtension();
+
+        if ($extension === 'zip') {
+            $zip = new \ZipArchive;
+            if ($zip->open($archivo->getRealPath()) === true) {
+                $zip->extractTo($carpeta);
+                $zip->close();
+
+                $pdfsExtraidos = glob($carpeta . DIRECTORY_SEPARATOR . '*.pdf');
+                foreach ($pdfsExtraidos as $pdfPath) {
+                    $this->procesarPDFSerie($pdfPath, $idSerie, $archivosProcesados);
+                }
+            }
+        } else {
+            $rutaArchivo = $carpeta . DIRECTORY_SEPARATOR . $archivo->getClientOriginalName();
+            $archivo->move($carpeta, $archivo->getClientOriginalName());
+            $this->procesarPDFSerie($rutaArchivo, $idSerie, $archivosProcesados);
+        }
+    }
+
+    return response()->json([
+        'message' => 'Archivos procesados correctamente',
+        'archivos' => $archivosProcesados,
+    ]);
+}
+
+
+private function procesarPDFSerie($archivo, $idSerie, &$archivosProcesados)
+{
+    $pdf = new Fpdi();
+
+    try {
+        $pageCount = $pdf->setSourceFile($archivo);
+    } catch (\Exception $e) {
+        \Log::error("Error procesando PDF: {$archivo} - " . $e->getMessage());
+        $pageCount = 1;
+    }
+
+    if ($pageCount > 1) {
+        $archivosProcesados[] = [
+            'nombre' => basename($archivo),
+            'paginas' => $pageCount,
+            'mensaje' => "Este PDF tiene {$pageCount} páginas. Puedes separarlo antes de guardarlo."
+        ];
+        return; 
+    }
+
+    // PDF de 1 página, registramos directamente
+    $this->registrarPDFSerie($archivo, $idSerie, $archivosProcesados);
+}
+
+
+private function registrarPDFSerie($archivo, $idSerie, &$archivosProcesados)
+{
+    $nombreArchivo = basename($archivo);
+    $rutaCarpeta = storage_path("app/public/documentos/serie/{$idSerie}");
+    if (!file_exists($rutaCarpeta)) mkdir($rutaCarpeta, 0755, true);
+
+    $nuevaRuta = $rutaCarpeta . DIRECTORY_SEPARATOR . $nombreArchivo;
+    rename($archivo, $nuevaRuta);
+
+    $rutaRelativa = "storage/documentos/serie/{$idSerie}/{$nombreArchivo}";
+
+    $idIndexacion = DB::table('indexaciones')->insertGetId([
+        'id_serie'    => $idSerie,       // ✅ Guardamos el idSerie
+        'archivo_url' => $rutaRelativa,
+        'estado'      => 2,              // ✅ Estado 2 por defecto
+        'creado_en'   => now(),
+        'updated_at'  => now(),
+    ]);
+
+    $archivosProcesados[] = [
+        'id_indexacion' => $idIndexacion,
+        'nombre'        => $nombreArchivo,
+        'ruta_relativa' => $rutaRelativa,
+        'url'           => asset($rutaRelativa)
+    ];
+}
 
 
 /*

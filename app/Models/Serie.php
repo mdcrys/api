@@ -9,9 +9,8 @@ class Serie extends Model
 {
     use HasFactory;
 
-    protected $table = 'serie'; // nombre de la tabla
-
-    protected $primaryKey = 'id_serie'; // clave primaria
+    protected $table = 'serie'; // Nombre de la tabla
+    protected $primaryKey = 'id_serie';
 
     protected $fillable = [
         'id_subseccion',
@@ -29,24 +28,54 @@ class Serie extends Model
     // Si quieres usar soft deletes
     protected $dates = ['deleted_at'];
 
-    // Relaciones
+    /**
+     * 🔗 Relación con Proyecto
+     */
     public function proyecto()
     {
-        return $this->belongsTo(\App\Models\Proyecto::class, 'id_proyecto');
+        return $this->belongsTo(\App\Models\Proyecto::class, 'id_subseccion', 'id_proyecto');
     }
 
+    /**
+     * 🔗 Relación con Empresa
+     */
     public function empresa()
     {
         return $this->belongsTo(\App\Models\Empresa::class, 'id_empresa');
     }
 
+    /**
+     * 🔗 Relación con la serie padre (recursiva)
+     */
     public function padre()
     {
         return $this->belongsTo(Serie::class, 'padre_id');
     }
 
+    /**
+     * 🔗 Relación con series hijas (recursiva)
+     */
     public function hijos()
     {
         return $this->hasMany(Serie::class, 'padre_id');
     }
+
+    /**
+     * 🔗 Relación recursiva para cargar todos los hijos de manera anidada
+     */
+     public function hijosRecursivos()
+    {
+        return $this->hijos()->with('hijosRecursivos', 'indexaciones');
+    }
+    /**
+     * 🔗 Relación con documentos dentro de la serie
+     */
+   
+   public function indexaciones()
+{
+    return $this->hasMany(\App\Models\Indexacion::class, 'id_serie', 'id_serie')
+                ->orWhere('id_subserie', $this->id_serie);
+}
+
+
 }

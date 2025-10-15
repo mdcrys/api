@@ -241,15 +241,19 @@ Route::resource('documentos', DocumentoController::class); // Crea rutas REST: i
 
 //indexacion
 Route::post('/indexaciones/upload', [IndexacionController::class, 'ocr']);
+Route::post('/indexaciones/uploads', [IndexacionController::class, 'archivos']);
+Route::post('/indexaciones/separar', [IndexacionController::class, 'separar']);
 Route::post('/indexaciones', [IndexacionController::class, 'store']);
 Route::post('/indexaciones/index', [IndexacionController::class, 'index']);
 
 Route::post('/indexaciones/obtenerCampos', [IndexacionController::class, 'obtenerCamposExtra']);
 Route::post('/indexaciones/indexbusqueda', [IndexacionController::class, 'buscarDocumento']);
 
-// Nueva ruta para servir PDFs con CORS
-
-
+// indexacion - SERIE  
+Route::post('/indexacioneserie', [IndexacionController::class, 'storeIndexacionSerie']);
+Route::post('/IndexacionDatosSerie', [IndexacionController::class, 'DatosIndexacionSerie']);
+Route::post('/indexaciones/obtenerCamposSerie', [IndexacionController::class, 'obtenerCamposExtraSerie']);
+Route::post('/indexaciones/uploadSerie', [IndexacionController::class, 'archivosSerie']);
 //
 
 
@@ -317,6 +321,10 @@ Route::get('/subsecciones2', [ProyectoController::class, 'listSubsecciones2']);
 Route::post('/subseccionesingreso2', [ProyectoController::class, 'guardarSubseccion2']);  
 
 
+
+
+
+
 //SERIE
 Route::post('/DatosSubSerie', [ProyectoController::class, 'DatosSubSeccionSerie']);
 Route::post('/DatosSerie', [SerieController::class, 'DatosSubSeccionSerie']);
@@ -340,3 +348,15 @@ Route::post('/DatosNombre', [IndexacionController::class, 'DatosNombre']);
 
 //Documentacion-Serie
 Route::post('/DatosNombreSerie', [IndexacionController::class, 'DatosNombreSerie']);
+
+
+
+
+//vista de Documentos
+Route::post('/getDocumentos', [DocumentoController::class, 'getProyectosEscalera']);
+Route::post('/pdf/convertir-imagenes', [DocumentoController::class, 'getImagenesPDF']);
+Route::post('/usuarios/empresa', [DocumentoController::class, 'UsuariosEmpresa']);
+
+Route::post('/enviarPDF', [DocumentoController::class, 'Pdf']);
+
+

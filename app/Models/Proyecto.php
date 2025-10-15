@@ -1,9 +1,11 @@
 <?php
+
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use App\Models\Modulo;
+use App\Models\Serie;
 use App\Models\Empresa;
+use App\Models\Modulo;
 
 class Proyecto extends Model
 {
@@ -28,7 +30,11 @@ class Proyecto extends Model
     public function subsecciones()
     {
         return $this->hasMany(Proyecto::class, 'padre_id', 'id_proyecto')
-                    ->with('subsecciones'); // Carga recursiva hacia abajo
+                    ->with([
+                        'subsecciones',     // Subniveles recursivos
+                        'series.padre',     // Padre de cada serie
+                        'series.hijosRecursivos' // Hijos de cada serie
+                    ]);
     }
 
     /**
@@ -55,4 +61,24 @@ class Proyecto extends Model
     {
         return $this->hasMany(Modulo::class, 'id_proyecto');
     }
+
+    /**
+     * 🔗 Relación con Series
+     */
+    public function series()
+    {
+        return $this->hasMany(Serie::class, 'id_subseccion', 'id_proyecto')
+                    ->with(['padre', 'hijosRecursivos']); // Padre e hijos recursivos de la serie
+    }
+
+    // App\Models\Proyecto.php
+public function indexaciones()
+{
+    return $this->hasMany(\App\Models\Indexacion::class, 'id_proyecto', 'id_proyecto')
+                ->orWhere('id_subseccion', $this->id_proyecto)
+                ->orWhere('id_subseccion2', $this->id_proyecto);
+}
+
+
+
 }
