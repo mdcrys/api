@@ -27,7 +27,7 @@ return [
 
     // Orígenes permitidos (puedes restringir a tu frontend específico)
     'allowed_origins' => [
-    'http://localhost:4200',       // desarrollo
+   //'http://localhost:4200',       // desarrollo
     'https://api-doc.sisgesdoc.com' // producción
 ],
 
