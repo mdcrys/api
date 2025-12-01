@@ -44,6 +44,8 @@ use App\Http\Controllers\ProyectoController;
 use App\Http\Controllers\ModuloController;
 use App\Http\Controllers\SeccionController;
 use App\Http\Controllers\SerieController;
+use App\Http\Controllers\BusquedaController;
+use App\Http\Controllers\ReportesController;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Response;
 use Illuminate\Support\Facades\Cache;
@@ -202,6 +204,8 @@ Route::post('/empresas/import', [EmpresaController::class, 'import']);
 Route::put('/empresas/{id}', [EmpresaController::class, 'update']);
 Route::get('/empresas/config', [EmpresaController::class, 'config']);
 Route::resource('empresas', EmpresaController::class);
+Route::get('/empresas/{id}', [EmpresaController::class, 'show']);
+
 
 
 
@@ -254,6 +258,14 @@ Route::post('/indexacioneserie', [IndexacionController::class, 'storeIndexacionS
 Route::post('/IndexacionDatosSerie', [IndexacionController::class, 'DatosIndexacionSerie']);
 Route::post('/indexaciones/obtenerCamposSerie', [IndexacionController::class, 'obtenerCamposExtraSerie']);
 Route::post('/indexaciones/uploadSerie', [IndexacionController::class, 'archivosSerie']);
+Route::post('/indexacion/buscar', [IndexacionController::class, 'TraeIndexacion']);
+
+ Route::post('/indexaciones/listar-documentos-serie', [DocumentoController::class, 'listarDocumentosPorSerie']);
+Route::post('/indexaciones/subir-documento-serie', [DocumentoController::class, 'subirDocumentosSerie']);
+
+Route::post('/documentos/obtener-documento', [DocumentoController::class, 'obtenerDocumento']);
+Route::get('/indexacion/campos/documento/{id}', [DocumentoController::class, 'getCamposByDocumento']);
+
 //
 
 
@@ -356,7 +368,27 @@ Route::post('/DatosNombreSerie', [IndexacionController::class, 'DatosNombreSerie
 Route::post('/getDocumentos', [DocumentoController::class, 'getProyectosEscalera']);
 Route::post('/pdf/convertir-imagenes', [DocumentoController::class, 'getImagenesPDF']);
 Route::post('/usuarios/empresa', [DocumentoController::class, 'UsuariosEmpresa']);
-
+Route::post('/permisoscarpetas', [DocumentoController::class, 'GuardarPermisosCarpetas']);
+Route::post('/permisoscarpetas/get', [DocumentoController::class, 'getPermisosCarpeta']);
+Route::post('/permisoscarpetas/get-usuario', [DocumentoController::class, 'getPermisosPorUsuario']);
 Route::post('/enviarPDF', [DocumentoController::class, 'Pdf']);
+
+//Firmar PDF
+Route::post('/firmar-pdf', [DocumentoController::class, 'Firmar']);
+
+
+//Buscar Buscador
+Route::post('/buscarDocumentos', [BusquedaController::class, 'buscarDocumentos']);
+
+
+
+// Reportes
+Route::prefix('reporte')->group(function () {
+
+    Route::post('/pdf', [ReportesController::class, 'exportarPDF']);
+    Route::post('/excel', [ReportesController::class, 'exportarExcel']);
+
+});
+
 
 

@@ -11,6 +11,7 @@ class ProyectoController extends Controller
 {
     public function index(Request $request)
     {
+       
         $user = auth('api')->user(); // Obtiene el usuario autenticado
 
         $search = $request->get("search");
@@ -45,6 +46,7 @@ class ProyectoController extends Controller
 
     public function store(Request $request)
 {
+    // dd($request->all());
     // Validar datos requeridos
     $request->validate([
         'nombre' => 'required|string|max:255',
@@ -127,6 +129,7 @@ class ProyectoController extends Controller
     // Método para traer datos de un proyecto
     public function DatosProyecto(Request $request)
     {
+        //dd($request->all());
         $request->validate([
             'idProyecto' => 'required|integer', // Laravel espera integer
         ]);
@@ -164,152 +167,177 @@ class ProyectoController extends Controller
 
 
     // Guardar subsección (recursiva) y registro en indexaciones
-public function guardarSubseccion(Request $request)
-{
-    // Validación
-    $request->validate([
-        'idProyecto' => 'required|integer|exists:proyecto,id_proyecto',
-        'nombre' => 'required|string|max:255',
-    ]);
-
-    try {
-        // Obtenemos el proyecto padre
-        $proyectoPadre = Proyecto::findOrFail($request->idProyecto);
-
-        // Creamos la subsección como un proyecto hijo
-        $subseccion = Proyecto::create([
-            'id_empresa' => $proyectoPadre->id_empresa, // heredamos la empresa
-            'nombre' => $request->nombre,
-            'padre_id' => $proyectoPadre->id_proyecto,
-            'nivel' => $proyectoPadre->nivel + 1,
-            'estado' => 1
+    public function guardarSubseccion(Request $request)
+    {
+        $request->validate([
+            'idProyecto' => 'required|integer|exists:proyecto,id_proyecto',
+            'nombre' => 'required|string|max:255',
+            'id_empresa' => 'required|integer' // validamos que venga id_empresa
         ]);
 
-        // --- NUEVO REGISTRO EN INDEXACIONES ---
-        Indexacion::create([
-            'id_proyecto' => $subseccion->id_proyecto, // vinculamos al id de la subsección
-            'campos_extra' => json_encode([]),       // inicializamos vacío
-            'archivo_url' => null,                   // o '' si quieres
-            'estado' => 1,
-            'creado_en' => now(),
-            'updated_at' => now()
-        ]);
+        try {
+            $proyectoPadre = Proyecto::findOrFail($request->idProyecto);
 
-        return response()->json([
-            'success' => true,
-            'subseccion' => $subseccion,
-            'message' => 'Subsección e indexación creada correctamente'
-        ], 201);
+            // Crear subsección
+            $subseccion = Proyecto::create([
+                'id_empresa' => $request->id_empresa, // ahora tomamos del request
+                'nombre' => $request->nombre,
+                'padre_id' => $proyectoPadre->id_proyecto,
+                'nivel' => $proyectoPadre->nivel + 1,
+                'estado' => 1
+            ]);
 
-    } catch (\Exception $e) {
-        return response()->json([
-            'success' => false,
-            'message' => 'Error al crear la subsección y la indexación',
-            'error' => $e->getMessage()
-        ], 500);
+            // Crear registro en indexaciones
+           Indexacion::create([
+                'id_proyecto'   => $proyectoPadre->id_proyecto,   // ✔️ padre (14)
+                'id_subseccion' => $subseccion->id_proyecto,      // ✔️ hijo (18)
+                'id_subseccion2' => null,
+                'campos_extra' => json_encode([]),
+                'archivo_url' => null,
+                'estado' => 1,
+                'creado_en' => now(),
+                'updated_at' => now(),
+                'id_empresa' => $request->id_empresa
+            ]);
+
+
+
+            return response()->json([
+                'success' => true,
+                'subseccion' => $subseccion,
+                'message' => 'Subsección e indexación creada correctamente'
+            ], 201);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al crear la subsección y la indexación',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
-}
+
 
 
 
 
     // Método para traer datos de una subsección con sus subsecciones hijas
- public function DatosSubSeccion(Request $request)
+    public function DatosSubSeccion(Request $request)
 {
-    $idSubseccion = $request->input('idSubseccion'); // ⚠️ input del body
+    $idSubseccion = $request->input('idSubseccion');
+
     if (!$idSubseccion) {
         return response()->json(['error' => 'No se recibió el idSubseccion'], 400);
     }
 
-    $subseccion = Proyecto::with('subsecciones')
+    $subseccion = Proyecto::with([
+            'subsecciones',
+            'parent' // ✅ CARGAMOS EL PADRE
+        ])
         ->where('id_proyecto', $idSubseccion)
         ->first();
 
     if (!$subseccion) {
         return response()->json(['error' => 'Subsección no encontrada'], 404);
     }
+    
 
     return response()->json([
         'id' => $subseccion->id_proyecto,
         'nombre' => $subseccion->nombre,
         'padre_id' => $subseccion->padre_id,
         'nivel' => $subseccion->nivel,
+
+        // ✅ DATOS DEL PADRE
+        'padre' => $subseccion->parent ? [
+            'id' => $subseccion->parent->id_proyecto,
+            'nombre' => $subseccion->parent->nombre,
+            'nivel' => $subseccion->parent->nivel
+        ] : null,
+
         'subsecciones' => $subseccion->subsecciones
     ]);
 }
 
 
 
-public function listSubsecciones1(Request $request)
-{
-    $idSubSeccion = $request->query('idSubSeccion'); // ⚠️ coincide con query param
-    if (!$idSubSeccion) {
-        return response()->json(['error' => 'No se recibió el idSubSeccion'], 400);
-    }
 
-    $subseccion = Proyecto::with('subsecciones')
-        ->where('id_proyecto', $idSubSeccion)
-        ->first();
-
-    if (!$subseccion) {
-        return response()->json(['error' => 'Subsección no encontrada'], 404);
-    }
-
-    return response()->json([
-        'id' => $subseccion->id_proyecto,
-        'nombre' => $subseccion->nombre,
-        'padre_id' => $subseccion->padre_id,
-        'nivel' => $subseccion->nivel,
-        'subsecciones' => $subseccion->subsecciones
-    ]);
-}
-
-
-    public function guardarSubseccion1(Request $request)
+    public function listSubsecciones1(Request $request)
     {
-        // Validación de datos
-        $request->validate([
-            'nombre' => 'required|string|max:255',
-            'idSubseccion' => 'required|integer|exists:proyecto,id_proyecto',
+        $idSubSeccion = $request->query('idSubSeccion'); // ⚠️ coincide con query param
+        if (!$idSubSeccion) {
+            return response()->json(['error' => 'No se recibió el idSubSeccion'], 400);
+        }
+
+        $subseccion = Proyecto::with('subsecciones')
+            ->where('id_proyecto', $idSubSeccion)
+            ->first();
+
+        if (!$subseccion) {
+            return response()->json(['error' => 'Subsección no encontrada'], 404);
+        }
+
+        return response()->json([
+            'id' => $subseccion->id_proyecto,
+            'nombre' => $subseccion->nombre,
+            'padre_id' => $subseccion->padre_id,
+            'nivel' => $subseccion->nivel,
+            'subsecciones' => $subseccion->subsecciones
+        ]);
+    }
+
+
+ public function guardarSubseccion1(Request $request)
+{
+    $request->validate([
+        'nombre'        => 'required|string|max:255',
+        'id_proyecto'   => 'required|integer|exists:proyecto,id_proyecto',   // padre real: 18
+        'id_subseccion' => 'required|integer|exists:proyecto,id_proyecto',   // seccion principal: 14
+    ]);
+
+    try {
+
+        // Padre REAL es donde estoy parado (id_proyecto = 18)
+        $padre = Proyecto::findOrFail($request->id_proyecto);
+
+        // Crear la nueva sub-subsección
+        $subsubseccion = Proyecto::create([
+            'nombre'     => $request->nombre,
+            'padre_id'   => $padre->id_proyecto,   // ← CORRECTO: padre = 18
+            'nivel'      => $padre->nivel + 1,
+            'estado'     => 1,
+            'id_empresa' => $padre->id_empresa,
         ]);
 
-        try {
-            // Obtener el proyecto padre
-            $proyectoPadre = Proyecto::findOrFail($request->idSubseccion);
+        // Registrar en indexaciones
+        Indexacion::create([
+            'id_proyecto'      => $request->id_subseccion,    // raíz: 14
+            'id_subseccion'    => $padre->id_proyecto,        // subsección 1: 18
+            'id_subseccion2'   => $subsubseccion->id_proyecto, // creada: 19
+            'campos_extra'     => json_encode([]),
+            'archivo_url'      => null,
+            'estado'           => 1,
+            'creado_en'        => now(),
+            'updated_at'       => now(),
+            'id_empresa'       => $padre->id_empresa,
+        ]);
 
-            // Crear nueva subsección
-            $subseccion = Proyecto::create([
-                'nombre' => $request->nombre,
-                'padre_id' => $proyectoPadre->id_proyecto, // vinculamos al padre
-                'nivel' => $proyectoPadre->nivel + 1, // nivel según el padre
-                'estado' => 1, // activo por defecto
-                'id_empresa' => $proyectoPadre->id_empresa,
-            ]);
+        return response()->json([
+            'success' => true,
+            'message' => 'SubSubSección creada correctamente',
+            'data' => $subsubseccion
+        ], 201);
 
-            // Crear registro en Indexacion automáticamente
-            Indexacion::create([
-                'id_modulo' => $subseccion->id_proyecto, // vinculamos con la subsección creada
-                'campos_extra' => json_encode([]),       // campos vacíos por defecto
-                'archivo_url' => null,
-                'estado' => 1,
-                'creado_en' => now(),
-                'updated_at' => now(),
-            ]);
-
-            return response()->json([
-                'success' => true,
-                'message' => 'SubSección creada correctamente y registrada en Indexacion',
-                'data' => $subseccion
-            ], 201);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error al crear la SubSección',
-                'error' => $e->getMessage()
-            ], 500);
-        }
+    } catch (\Exception $e) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Error al crear SubSubSección',
+            'error' => $e->getMessage()
+        ], 500);
     }
+}
+
+
 
 
 

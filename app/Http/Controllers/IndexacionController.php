@@ -146,30 +146,32 @@ public function ocr(Request $request)
 
 public function store(Request $request)
 {
-    // Para depuración
+    // 🧪 Depuración temporal: muestra lo que llega
     // dd($request->all());
 
+    // ✅ Validaciones
     $request->validate([
-        'idProyecto' => 'required|integer', // ✅ Validamos idProyecto
-        
+        'idProyecto' => 'required|integer',
         'campos' => 'required|string',
         'archivos.*' => 'file|mimes:pdf,doc,docx,jpg,jpeg,png|max:10240',
     ]);
 
-    $idProyecto = $request->input('idProyecto'); // ✅ Obtenemos idProyecto
+    // ✅ Variables del request
+    $idProyecto = $request->input('idProyecto');
     $idModulo = $request->input('idModulo');
     $campos = json_decode($request->input('campos'), true);
+    $textoOCR = $request->input('textoOCR'); // 👈 Usa el mismo nombre que en tu dd()
 
     if ($campos === null) {
         return response()->json(['error' => 'Campos JSON inválido'], 400);
     }
 
+    // ✅ Guardar archivos
     $archivosGuardados = [];
     if ($request->hasFile('archivos')) {
         foreach ($request->file('archivos') as $archivo) {
             if ($archivo->isValid()) {
                 $carpetaDestino = 'public/documentos';
-
                 $nombreBase = pathinfo($archivo->getClientOriginalName(), PATHINFO_FILENAME);
                 $extension = $archivo->getClientOriginalExtension();
                 $nombreArchivo = $nombreBase . '_' . time() . '.' . $extension;
@@ -180,22 +182,25 @@ public function store(Request $request)
         }
     }
 
-    // ✅ Crear indexación incluyendo idProyecto
+    // ✅ Crear el registro de indexación en base de datos
     $indexacion = Indexacion::create([
-        'id_proyecto' => $idProyecto,       // Aquí se guarda el id del proyecto
+        'id_proyecto' => $idProyecto,
         'id_modulo' => $idModulo,
         'campos_extra' => $campos,
         'archivo_url' => json_encode($archivosGuardados),
+        'texto_ocr' => $textoOCR, // 👈 Guardamos aquí el texto OCR
         'estado' => 1,
         'creado_en' => now(),
         'updated_at' => now(),
     ]);
 
+    // ✅ Retornar respuesta JSON
     return response()->json([
-        'mensaje' => 'Datos guardados correctamente',
+        'mensaje' => 'Indexación guardada correctamente',
         'indexacion' => $indexacion,
     ]);
 }
+
 
 
 
@@ -403,7 +408,7 @@ public function DatosNombre(Request $request)
 
 public function DatosNombreSerie(Request $request)
 {
-    //dd($request->all());
+   // dd($request->all());
     $request->validate([
         'id' => 'required|integer',
     ]);
@@ -442,50 +447,134 @@ public function DatosNombreSerie(Request $request)
 
 public function storeIndexacionSerie(Request $request)
 {
-    // Validación
+
+    //dd($request->all());
     $request->validate([
-        'idSerie' => 'required|integer', // ✅ Validamos idSerie
-        'campos' => 'required|string',
+        'idSerie'    => 'required|integer',
+        'idSubSerie' => 'nullable',
+        'id_empresa' => 'required|integer',
+        'campos'     => 'required|string',
         'archivos.*' => 'file|mimes:pdf,doc,docx,jpg,jpeg,png|max:10240',
     ]);
 
-    $idSerie = $request->input('idSerie'); // ✅ Obtenemos idSerie
-    $campos = json_decode($request->input('campos'), true);
+    $idEmpresa  = (int) $request->id_empresa;
+    $idSerie    = (int) $request->idSerie;
+    $idSubSerie = $request->idSubSerie ? (int)$request->idSubSerie : null;
 
-    if ($campos === null) {
-        return response()->json(['error' => 'Campos JSON inválido'], 400);
+    $camposExtra = json_decode($request->campos, true);
+
+    if (!$camposExtra) {
+        return response()->json([
+            'success' => false,
+            'mensaje' => 'JSON inválido en campos'
+        ], 400);
     }
 
-    // Guardar archivos
+    /** ================= BUSCAR INDEXACIÓN ================= */
+    $query = Indexacion::where('id_serie', $idSerie)
+        ->where('id_empresa', $idEmpresa);
+
+    if ($idSubSerie !== null) {
+        $query->where('id_subserie', $idSubSerie);
+    } else {
+        $query->whereNull('id_subserie');
+    }
+
+    $indexacionExistente = $query->first();
+
+    if (!$indexacionExistente) {
+        return response()->json([
+            'success' => false,
+            'mensaje' => 'La indexación no existe, no se puede actualizar'
+        ], 404);
+    }
+
+    /** ================= MANEJO DEL PDF ================= */
+
     $archivosGuardados = [];
+
+    $idIndexacion = $indexacionExistente->id_indexacion;
+    $carpetaDestino = "public/documentos/{$idIndexacion}";
+
+    // 👉 Si sube nuevo archivo, reemplazar el anterior
     if ($request->hasFile('archivos')) {
-        foreach ($request->file('archivos') as $archivo) {
-            if ($archivo->isValid()) {
-                $carpetaDestino = 'public/documentos';
-                $nombreBase = pathinfo($archivo->getClientOriginalName(), PATHINFO_FILENAME);
-                $extension = $archivo->getClientOriginalExtension();
-                $nombreArchivo = $nombreBase . '_' . time() . '.' . $extension;
-                $ruta = $archivo->storeAs($carpetaDestino, $nombreArchivo);
-                $archivosGuardados[] = $ruta;
+
+        // 🗑️ BORRAR ARCHIVO ANTERIOR
+        $archivoAnterior = json_decode($indexacionExistente->archivo_url, true);
+
+        if ($archivoAnterior && isset($archivoAnterior[0])) {
+            $rutaAnterior = storage_path('app/' . $archivoAnterior[0]);
+            if (file_exists($rutaAnterior)) {
+                unlink($rutaAnterior);
             }
         }
+
+        // ✅ GUARDAR NUEVO PDF (solo 1)
+        foreach ($request->file('archivos') as $archivo) {
+            if ($archivo->isValid()) {
+
+                $nombre = pathinfo($archivo->getClientOriginalName(), PATHINFO_FILENAME);
+                $extension = $archivo->getClientOriginalExtension();
+                $nuevoNombre = $nombre . '_' . time() . '.' . $extension;
+
+                $ruta = $archivo->storeAs($carpetaDestino, $nuevoNombre);
+                $archivosGuardados[] = $ruta;
+
+                break; // ⚡ SOLO UN ARCHIVO
+            }
+        }
+    } else {
+        // Si no sube archivo, se mantiene el anterior
+        $archivosGuardados = json_decode($indexacionExistente->archivo_url, true) ?? [];
     }
 
-    // Crear indexación incluyendo solo idSerie
-    $indexacion = Indexacion::create([
-        'id_serie' => $idSerie,                   // ✅ guardamos idSerie
-        'campos_extra' => $campos,
-        'archivo_url' => json_encode($archivosGuardados),
-        'estado' => 1,
-        'creado_en' => now(),
-        'updated_at' => now(),
-    ]);
+
+    /** ================= DATOS A ACTUALIZAR ================= */
+    $datos = [
+        'nro_folios'              => $request->nroFolios,
+        'nro_paginas_digitales'   => $request->nroPaginasDigitales,
+        'folio_secuencial_inicio' => $request->folioSecuencialInicio,
+        'folio_secuencial_fin'    => $request->folioSecuencialFin,
+        'tipo_soporte'            => $request->tipoSoporte,
+        'tipo_acceso'             => $request->tipoAcceso,
+        'estado_conservacion'     => $request->estadoConservacion,
+        'revisado_digitado_por'   => $request->revisadoDigitadoPor,
+        'plazo_gestion'     => $request->plazoGestion,
+    'plazo_central'     => $request->plazoCentral,
+     'plazo_intermedio' => $request->plazoIntermedio,
+     'plazo_historico'  => $request->plazoHistorico,
+
+    'base_legal'        => $request->baseLegal,
+        'disposicion_final'       => $request->disposicionFinal,
+        'tecnica_seleccion'       => $request->tecnicaSeleccion,
+        'nro_caja'                => $request->nroCaja,
+        'nro_carpeta_fisica'      => $request->nroCarpetaFisica,
+        'nro_tomo'                => $request->nroTomo,
+        'nro_estanteria'          => $request->nroEstanteria,
+        'nro_bandeja'             => $request->nroBandeja,
+        'observaciones_respuesta' => $request->observacionesRespuesta,
+
+        'fecha_apertura' => $request->fechaApertura,
+        'fecha_cierre'   => $request->fechaCierre,
+
+        'campos_extra' => json_encode($camposExtra),
+        'archivo_url'  => json_encode($archivosGuardados),
+        'estado'       => 1,
+    ];
+
+    /** ================= UPDATE REAL ================= */
+    $indexacionExistente->update($datos);
 
     return response()->json([
-        'mensaje' => 'Datos guardados correctamente',
-        'indexacion' => $indexacion,
+        'success' => true,
+        'mensaje' => 'Documento actualizado correctamente',
+        'indexacion' => $indexacionExistente
     ]);
 }
+
+
+
+
 
 
 
@@ -531,37 +620,38 @@ public function DatosIndexacionSerie(Request $request)
 
 
     // Método para traer siempre todos los campos_extra de la tabla indexaciones
- public function obtenerCamposExtraSerie(Request $request)
+public function obtenerCamposExtraSerie(Request $request)
 {
-    $idSerie = $request->input('idSerie'); // ✅ ahora usamos idSerie
+    $idSerie = $request->input('idSerie');
 
     if (!$idSerie) {
-        return response()->json(['error' => 'Falta idSerie'], 400);
+        return response()->json(['campos_extra' => []]);
     }
 
-    // Obtener todos los campos_extra de todas las indexaciones de esa serie
-    $registros = Indexacion::where('id_serie', $idSerie)
-        ->pluck('campos_extra');
+    $serie = \App\Models\Serie::find($idSerie);
 
-    // Aplanar los arrays y obtener títulos únicos
-    $titulosUnicos = collect($registros)
-        ->map(function ($campos) {
-            if (is_array($campos)) {
-                return $campos; // ya está decodificado
-            }
-            if (is_string($campos)) {
-                return json_decode($campos, true) ?: [];
-            }
-            return [];
-        })
-        ->flatten(1)
-        ->unique('titulo')
-        ->values();
+    if (!$serie) {
+        return response()->json(['campos_extra' => []]);
+    }
 
-    return response()->json([
-        'campos_extra' => $titulosUnicos,
-    ]);
+    // Casteo a array
+    $params = $serie->parametros_indexados;
+
+    if (is_string($params)) {
+        $params = json_decode($params, true);
+    }
+
+    if (!is_array($params)) {
+        $params = [];
+    }
+
+    // Formato esperado {titulo: "..."}
+    $resultado = array_map(fn($t) => ['titulo' => $t], $params);
+
+    return response()->json(['campos_extra' => $resultado]);
 }
+
+
 
 
 
@@ -1061,6 +1151,52 @@ public function descargarZip($idProceso)
 
 
 
+public function TraeIndexacion(Request $request)
+{
+    try {
+
+        // ================== ESCENARIO 1 ==================
+        // SI YA VIENE idIndexacion → BUSCAR DIRECTO
+        if (!empty($request->idIndexacion)) {
+
+            $indexacion = Indexacion::where('id_indexacion', $request->idIndexacion)->first();
+
+            return response()->json([
+                'success' => true,
+                'escenario' => 'por_idIndexacion',
+                'data' => $indexacion
+            ]);
+        }
+
+        // ================== ESCENARIO 2 ==================
+        // SI NO VIENE idIndexacion → BUSCAR POR SERIE + SUBSERIE + EMPRESA
+
+        $query = Indexacion::where('id_serie', $request->idSerie)
+            ->where('id_empresa', $request->id_empresa);
+
+        if (!empty($request->idSubSerie)) {
+            $query->where('id_subserie', $request->idSubSerie);
+        } else {
+            $query->whereNull('id_subserie');
+        }
+
+        $indexacion = $query->first();
+
+        return response()->json([
+            'success' => true,
+            'escenario' => 'por_serie_subserie',
+            'data' => $indexacion
+        ]);
+
+    } catch (\Exception $e) {
+
+        return response()->json([
+            'success' => false,
+            'error' => 'Error al obtener la indexación',
+            'detalle' => $e->getMessage()
+        ], 500);
+    }
+}
 
 
 }

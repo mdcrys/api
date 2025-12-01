@@ -13,17 +13,39 @@ class Serie extends Model
     protected $primaryKey = 'id_serie';
 
     protected $fillable = [
-        'id_subseccion',
-        'id_empresa',
-        'padre_id',
-        'nombre',
-        'descripcion',
-        'nivel',
-        'estado',
-        'created_at',
-        'updated_at',
-        'deleted_at'
-    ];
+    'id_subseccion',
+    'id_empresa',
+    'padre_id',
+    'nombre',
+    'descripcion',
+    'origen',
+    'acceso',
+    'plazo_gestion',
+    'plazo_central',
+    'plazo_intermedio',
+    'plazo_historico',
+    'base_legal',
+    'disposicion_final',
+    'tecnica_seleccion',
+    'parametros_indexados',
+    'tiempo_conservacion',
+    'serie_activa',
+    'prioridad',
+    'observaciones_respuesta',
+    'revisado_digitado_por',
+
+    // FICHA TÉCNICA
+    'numero_expediente',
+    'detalle_fisico',
+    'plazo_conservacion',
+    'archivo_gestion',
+    'archivo_central',
+    'archivo_historico',
+    'criterios',
+
+    'estado'
+];
+
 
     // Si quieres usar soft deletes
     protected $dates = ['deleted_at'];
@@ -76,6 +98,13 @@ class Serie extends Model
     return $this->hasMany(\App\Models\Indexacion::class, 'id_serie', 'id_serie')
                 ->orWhere('id_subserie', $this->id_serie);
 }
+
+// en App\Models\Serie
+protected $casts = [
+    'parametros_indexados' => 'array',
+    'criterios' => 'array'
+];
+
 
 
 }

@@ -20,9 +20,39 @@ class Indexacion extends Model
         'id_modulo',
         'campos_extra',
         'archivo_url',
+        'texto_ocr',  	 
+        'id_empresa',
+         'descripcion_serie',
+        'origen_documentacion',    // (Digital / Físico / Mixto → en tinyint)
+        'condiciones_acceso', 
         'estado',
         'creado_en',
         'updated_at',
+        'fecha_apertura',
+        'fecha_cierre',
+        'nro_folios',
+        'nro_paginas_digitales',
+        'destino_final',
+        'folio_secuencial_inicio',
+        'folio_secuencial_fin',
+        'nro_caja',
+        'nro_carpeta_fisica',
+        'nro_tomo',
+        'nro_estanteria',
+        'nro_bandeja',
+        'tipo_soporte',
+        'revisado_digitado_por',
+        'tipo_acceso',
+        'estado_conservacion',
+        'observaciones_respuesta',
+        'plazo_gestion',
+        'plazo_central',
+        'plazo_intermedio',
+        'plazo_historico',
+        'base_legal',
+        'disposicion_final',
+        'tecnica_seleccion',
+
     ];
 
     // ✅ Si tu tabla NO usa created_at y updated_at automáticos
@@ -33,6 +63,7 @@ class Indexacion extends Model
         'campos_extra' => 'array',
         'creado_en' => 'datetime',
         'updated_at' => 'datetime',
+        'texto_ocr' => 'string',
     ];
 
     // 🔗 Relación con Proyecto

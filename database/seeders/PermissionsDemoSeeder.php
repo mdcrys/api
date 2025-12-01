@@ -66,6 +66,18 @@ class PermissionsDemoSeeder extends Seeder
         Permission::create(['guard_name' => 'api','name' => 'kardex']);
 
         Permission::create(['guard_name' => 'api','name' => 'ocr']);
+
+
+
+        Permission::create(['guard_name' => 'api','name' => 'register_documento']);
+        Permission::create(['guard_name' => 'api','name' => 'edit_documento']);
+        Permission::create(['guard_name' => 'api','name' => 'delete_documento']);
+
+        Permission::create(['guard_name' => 'api','name' => 'lista_documentos']);
+
+        Permission::create(['guard_name' => 'api','name' => 'buscar_documentos']);
+
+        Permission::create(['guard_name' => 'api','name' => 'reportes']);
         
         // create roles and assign existing permissions
         // $role1 = Role::create(['guard_name' => 'api','name' => 'writer']);
