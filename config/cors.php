@@ -26,7 +26,10 @@ return [
     'allowed_methods' => ['*'],
 
     // Orígenes permitidos (puedes restringir a tu frontend específico)
-    'allowed_origins' => ['http://localhost:4200'],
+    'allowed_origins' => [
+    'http://localhost:4200',       // desarrollo
+    'https://api-doc.sisgesdoc.com' // producción
+],
 
     // Patrones de origen (si necesitas regex)
     'allowed_origins_patterns' => [],
